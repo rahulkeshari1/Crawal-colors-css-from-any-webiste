@@ -1,17 +1,36 @@
-import puppeteer from "puppeteer";
-import axios from "axios";
-import fs from "fs";
+const express = require('express');
+const cors = require('cors');
+const puppeteer = require('puppeteer');
+const axios = require('axios');
+const fs = require('fs');
+const path = require('path');
+
+const app = express();
+const PORT = process.env.PORT || 3000;
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.static('public'));
 
 // Regex for matching colors in CSS text
 const colorRegex = /(#[0-9a-f]{3,6}\b|rgba?\([^)]+\)|hsla?\([^)]+\))/gi;
 
+// Function to extract colors from a given URL with element mapping
 async function crawlColorsAndCSS(url) {
-  const browser = await puppeteer.launch({ headless: true });
+  const browser = await puppeteer.launch({ 
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
   const page = await browser.newPage();
-  await page.goto(url, { waitUntil: "networkidle2" });
+  
+  await page.goto(url, { 
+    waitUntil: "networkidle2",
+    timeout: 30000
+  });
 
-  // 1. Extract computed colors from DOM
-  const computedColors = await page.evaluate(() => {
+  // 1. Extract computed colors from DOM with element information
+  const elementColors = await page.evaluate(() => {
     const colorProps = [
       "color",
       "backgroundColor",
@@ -20,23 +39,52 @@ async function crawlColorsAndCSS(url) {
       "fill",
       "stroke"
     ];
-    const uniqueColors = new Set();
-
+    
+    const colorData = [];
+    const processedElements = new Set();
+    
     document.querySelectorAll("*").forEach(el => {
+      // Skip elements that are too generic or have no visual representation
+      if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE' || el.tagName === 'META' || 
+          el.tagName === 'LINK' || el.tagName === 'HEAD') {
+        return;
+      }
+      
+      const tag = el.tagName.toLowerCase();
+      const id = el.id ? `#${el.id}` : '';
+const classes = el.classList && el.classList.length > 0 
+  ? `.${[...el.classList].join('.')}` 
+  : '';
+        const selector = `${tag}${id}${classes}`;
+      
+      // Create a unique identifier for this element to avoid duplicates
+      const elementIdentifier = el.outerHTML.length < 100 ? el.outerHTML : selector;
+      
+      if (processedElements.has(elementIdentifier)) return;
+      processedElements.add(elementIdentifier);
+      
       const styles = window.getComputedStyle(el);
+      const elementColors = {};
+      
       colorProps.forEach(prop => {
         const value = styles.getPropertyValue(prop);
-        if (
-          value &&
-          value !== "rgba(0, 0, 0, 0)" &&
-          value !== "transparent"
-        ) {
-          uniqueColors.add(value.trim());
+        if (value && value !== "rgba(0, 0, 0, 0)" && value !== "transparent" && !value.includes("url")) {
+          elementColors[prop] = value.trim();
         }
       });
+      
+      if (Object.keys(elementColors).length > 0) {
+        colorData.push({
+          selector,
+          tag,
+          id: el.id || '',
+          classes: el.className || '',
+          colors: elementColors
+        });
+      }
     });
-
-    return Array.from(uniqueColors);
+    
+    return colorData;
   });
 
   // 2. Extract CSS links and inline <style> blocks
@@ -56,8 +104,9 @@ async function crawlColorsAndCSS(url) {
   let cssTexts = [...inlineCSS];
   for (const link of cssLinks) {
     try {
-      const res = await fetch(link).then(r => r.text());
-      cssTexts.push(res);
+      const absoluteUrl = new URL(link, url).href;
+      const res = await axios.get(absoluteUrl, { timeout: 5000 });
+      cssTexts.push(res.data);
     } catch (e) {
       console.warn("⚠️ Failed to load CSS:", link);
     }
@@ -73,17 +122,35 @@ async function crawlColorsAndCSS(url) {
   await browser.close();
 
   return {
-    computedColors: Array.from(computedColors),
+    elementColors,
     cssColors: Array.from(cssColors),
   };
 }
 
-const url = "https://bemidas.com/"; 
-crawlColorsAndCSS(url).then(result => {
-  console.log("✅ Crawling done! Saving to colors.json");
+// API endpoint to extract colors
+app.post('/api/extract-colors', async (req, res) => {
+  const { url } = req.body;
+  
+  if (!url) {
+    return res.status(400).json({ error: 'URL is required' });
+  }
 
-  // Save results in a JSON file
-  fs.writeFileSync("colors.json", JSON.stringify(result, null, 2));
+  try {
+    console.log(`Extracting colors from: ${url}`);
+    const result = await crawlColorsAndCSS(url);
+    res.json(result);
+  } catch (error) {
+    console.error('Error extracting colors:', error);
+    res.status(500).json({ error: 'Failed to extract colors from the URL' });
+  }
+});
 
-  console.log("📁 Results saved in colors.json");
+// Serve the frontend
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+// Start the server
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });

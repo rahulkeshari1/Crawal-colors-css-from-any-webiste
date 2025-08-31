@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Color Palette Extractor</title>
+    <!-- Material Icons -->
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <!-- Inter Font -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+     <link rel="stylesheet" href="./index.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="app-title">
+                <i class="material-icons">palette</i>
+                <h3>Color Palette Extractor</h3>
+            </div>
+            <!-- <p class="description">Extract color palettes from  website with element mapping. See exactly which colors are used by which elements.</p> -->
+            <button class="theme-toggle" id="theme-toggle">
+                <i class="material-icons" id="theme-icon">dark_mode</i>
+                <span id="theme-text"></span>
+            </button>
+        </header>
+        
+        <section class="input-section">
+            <div class="url-input">
+                <input type="url" id="url-input" placeholder="https://example.com" />
+                <button id="extract-btn">
+                    <i class="material-icons">colorize</i>
+                    Extract Colors
+                </button>
+            </div>
+            <div id="status" class="status">
+                <div class="spinner"></div>
+                <span>Extracting colors... This may take a moment</span>
+            </div>
+        </section>
+        
+        <section id="results-section" class="results-section">
+            <div class="results-header">
+                <h2>Extracted Colors</h2>
+                <!-- <button id="download-btn" class="download-btn">
+                    <i class="material-icons">download</i>
+                    Download Results
+                </button> -->
+            </div>
+            
+            <div class="tabs">
+                <div class="tab active" data-tab="computed">
+                    <i class="material-icons">gradient</i>
+                    Color Palette
+                </div>
+                <div class="tab" data-tab="elements">
+                    <i class="material-icons">code</i>
+                    Element Colors
+                </div>
+                <div class="tab" data-tab="css">
+                    <i class="material-icons">css</i>
+                    CSS Colors
+                </div>
+                <div class="tab" data-tab="json">
+                    <i class="material-icons">data_object</i>
+                    JSON Output
+                </div>
+            </div>
+            
+            <div class="tab-content active" id="computed-tab">
+                <div id="computed-colors" class="color-palette"></div>
+            </div>
+            
+            <div class="tab-content" id="elements-tab">
+                <div id="element-colors" class="element-list"></div>
+            </div>
+            
+            <div class="tab-content" id="css-tab">
+                <div id="css-colors" class="color-palette"></div>
+            </div>
+            
+            <div class="tab-content" id="json-tab">
+                <pre id="json-output" class="json-output"></pre>
+            </div>
+        </section>
+        
+        <footer>
+            <p>Color Palette Extractor &copy; 2025 | Extract colors from  website</p>
+        </footer>
+        
+        <div class="snackbar" id="snackbar">
+            <i class="material-icons" id="snackbar-icon">check_circle</i>
+            <span id="snackbar-message">Color copied to clipboard!</span>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlInput = document.getElementById('url-input');
+            const extractBtn = document.getElementById('extract-btn');
+            const statusDiv = document.getElementById('status');
+            const resultsSection = document.getElementById('results-section');
+            const computedColorsDiv = document.getElementById('computed-colors');
+            const elementColorsDiv = document.getElementById('element-colors');
+            const cssColorsDiv = document.getElementById('css-colors');
+            const jsonOutput = document.getElementById('json-output');
+            const downloadBtn = document.getElementById('download-btn');
+            const tabs = document.querySelectorAll('.tab');
+            const tabContents = document.querySelectorAll('.tab-content');
+            const snackbar = document.getElementById('snackbar');
+            const snackbarIcon = document.getElementById('snackbar-icon');
+            const snackbarMessage = document.getElementById('snackbar-message');
+            const themeToggle = document.getElementById('theme-toggle');
+            const themeIcon = document.getElementById('theme-icon');
+            const themeText = document.getElementById('theme-text');
+            
+            let extractedData = null;
+            let allColorsMap = new Map();
+            
+            // Theme toggle functionality
+            themeToggle.addEventListener('click', () => {
+                document.body.classList.toggle('dark-mode');
+                const isDarkMode = document.body.classList.contains('dark-mode');
+                themeIcon.textContent = isDarkMode ? 'light_mode' : 'dark_mode';
+                themeText.textContent = isDarkMode ? 'Light Mode' : 'Dark Mode';
+                
+                // Save preference to localStorage
+                localStorage.setItem('darkMode', isDarkMode);
+            });
+            
+            // Check for saved theme preference
+            if (localStorage.getItem('darkMode') === 'true') {
+                document.body.classList.add('dark-mode');
+                themeIcon.textContent = 'light_mode';
+                themeText.textContent = 'Light Mode';
+            }
+            
+            // Tab switching functionality
+            tabs.forEach(tab => {
+                tab.addEventListener('click', () => {
+                    const tabId = tab.getAttribute('data-tab');
+                    
+                    // Update active tab
+                    tabs.forEach(t => t.classList.remove('active'));
+                    tab.classList.add('active');
+                    
+                    // Show active tab content
+                    tabContents.forEach(content => {
+                        content.classList.remove('active');
+                        if (content.id === `${tabId}-tab`) {
+                            content.classList.add('active');
+                        }
+                    });
+                });
+            });
+            
+            // Extract colors button handler
+            extractBtn.addEventListener('click', async () => {
+                const url = urlInput.value.trim();
+                
+                if (!url) {
+                    showSnackbar('Please enter a valid URL', 'error');
+                    return;
+                }
+                
+                try {
+                    showStatus('Extracting colors... This may take a moment', 'loading');
+                    extractBtn.disabled = true;
+                    
+                    // Call the backend API
+                    const response = await fetch('/api/extract-colors', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ url })
+                    });
+                    
+                    if (!response.ok) {
+                        const errorData = await response.json();
+                        throw new Error(errorData.error || 'Failed to extract colors');
+                    }
+                    
+                    const data = await response.json();
+                    extractedData = data;
+                    displayResults(data);
+                    showStatus('Colors extracted successfully!', 'success');
+                    showSnackbar('Colors extracted successfully!', 'success');
+                    
+                } catch (error) {
+                    showStatus('Error: ' + error.message, 'error');
+                    showSnackbar('Error: ' + error.message, 'error');
+                } finally {
+                    extractBtn.disabled = false;
+                }
+            });
+            
+            // Download button handler
+            // downloadBtn.addEventListener('click', async () => {
+            //     if (!extractedData) return;
+                
+            //     const url = urlInput.value.trim();
+            //     if (!url) return;
+                
+            //     try {
+            //         // Call the download API endpoint
+            //         const response = await fetch('/api/download-colors', {
+            //             method: 'POST',
+            //             headers: {
+            //                 'Content-Type': 'application/json'
+            //             },
+            //             body: JSON.stringify({ url })
+            //         });
+                    
+            //         if (!response.ok) {
+            //             throw new Error('Failed to download colors');
+            //         }
+                    
+            //         // Create a blob from the response and trigger download
+            //         const blob = await response.blob();
+            //         const downloadUrl = window.URL.createObjectURL(blob);
+            //         const a = document.createElement('a');
+            //         a.href = downloadUrl;
+            //         a.download = 'colors.json';
+            //         document.body.appendChild(a);
+            //         a.click();
+            //         a.remove();
+            //         window.URL.revokeObjectURL(downloadUrl);
+                    
+            //         showSnackbar('Download started successfully!', 'success');
+                    
+            //     } catch (error) {
+            //         showSnackbar('Error: ' + error.message, 'error');
+            //     }
+            // });
+            
+
+
+
+            // Function to display results
+            function displayResults(data) {
+                // Clear previous results
+                computedColorsDiv.innerHTML = '';
+                elementColorsDiv.innerHTML = '';
+                cssColorsDiv.innerHTML = '';
+                allColorsMap.clear();
+                
+                // Process element colors to create a map of all unique colors
+                data.elementColors.forEach(element => {
+                    Object.values(element.colors).forEach(color => {
+                        if (!allColorsMap.has(color)) {
+                            allColorsMap.set(color, {
+                                value: color,
+                                usageCount: 1,
+                                elements: [element]
+                            });
+                        } else {
+                            const colorData = allColorsMap.get(color);
+                            colorData.usageCount++;
+                            if (!colorData.elements.some(e => e.selector === element.selector)) {
+                                colorData.elements.push(element);
+                            }
+                        }
+                    });
+                });
+                
+                // Display all unique colors
+                allColorsMap.forEach((colorData, colorValue) => {
+                    const colorCard = createColorCard(colorValue, colorData.usageCount);
+                    computedColorsDiv.appendChild(colorCard);
+                });
+                
+                // Display element information
+                data.elementColors.forEach(element => {
+                    const elementCard = createElementCard(element);
+                    elementColorsDiv.appendChild(elementCard);
+                });
+                
+                // Display CSS colors
+                data.cssColors.forEach(color => {
+                    const colorCard = createColorCard(color, 0);
+                    cssColorsDiv.appendChild(colorCard);
+                });
+                
+                // Display JSON output
+                jsonOutput.textContent = JSON.stringify(data, null, 2);
+                
+                // Show results section
+                resultsSection.style.display = 'block';
+            }
+            
+            // Function to create a color card
+            function createColorCard(colorValue, usageCount) {
+                const card = document.createElement('div');
+                card.className = 'color-card';
+                
+                const preview = document.createElement('div');
+                preview.className = 'color-preview';
+                preview.style.backgroundColor = colorValue;
+                
+                const info = document.createElement('div');
+                info.className = 'color-info';
+                
+                const colorText = document.createElement('div');
+                colorText.className = 'color-value';
+                colorText.textContent = colorValue;
+                
+                const usageInfo = document.createElement('div');
+                usageInfo.style.display = 'flex';
+                usageInfo.style.justifyContent = 'space-between';
+                usageInfo.style.alignItems = 'center';
+                
+                const countSpan = document.createElement('span');
+                countSpan.textContent = `${usageCount} element${usageCount !== 1 ? 's' : ''}`;
+                countSpan.style.fontSize = '12px';
+                countSpan.style.color = 'var(--text-secondary)';
+                
+                const copyButton = document.createElement('button');
+                copyButton.className = 'copy-btn';
+                copyButton.innerHTML = '<i class="material-icons" style="font-size:14px;">content_copy</i> Copy';
+                copyButton.addEventListener('click', () => copyToClipboard(colorValue));
+                
+                usageInfo.appendChild(countSpan);
+                usageInfo.appendChild(copyButton);
+                
+                info.appendChild(colorText);
+                info.appendChild(usageInfo);
+                
+                card.appendChild(preview);
+                card.appendChild(info);
+                
+                return card;
+            }
+            
+            // Function to create an element card
+            function createElementCard(element) {
+                const card = document.createElement('div');
+                card.className = 'element-card';
+                
+                const selector = document.createElement('div');
+                selector.className = 'element-selector';
+                selector.innerHTML = `<i class="material-icons" style="font-size:18px;">tag</i> ${element.selector}`;
+                
+                const properties = document.createElement('div');
+                properties.className = 'color-properties';
+                
+                Object.entries(element.colors).forEach(([property, color]) => {
+                    const propertyDiv = document.createElement('div');
+                    propertyDiv.className = 'color-property';
+                    
+                    const swatch = document.createElement('div');
+                    swatch.className = 'color-swatch';
+                    swatch.style.backgroundColor = color;
+                    
+                    const propName = document.createElement('span');
+                    propName.className = 'property-name';
+                    propName.textContent = property;
+                    
+                    const colorValue = document.createElement('span');
+                    colorValue.textContent = color;
+                    colorValue.style.fontSize = '12px';
+                    
+                    propertyDiv.appendChild(swatch);
+                    propertyDiv.appendChild(propName);
+                    propertyDiv.appendChild(colorValue);
+                    
+                    properties.appendChild(propertyDiv);
+                });
+                
+                card.appendChild(selector);
+                card.appendChild(properties);
+                
+                return card;
+            }
+            
+            // Function to copy text to clipboard
+            function copyToClipboard(text) {
+                navigator.clipboard.writeText(text).then(() => {
+                    showSnackbar('Color copied to clipboard!', 'success');
+                }).catch(err => {
+                    console.error('Failed to copy: ', err);
+                    showSnackbar('Failed to copy to clipboard', 'error');
+                });
+            }
+            
+            // Function to show status messages
+            function showStatus(message, type) {
+                statusDiv.innerHTML = type === 'loading' 
+                    ? '<div class="spinner"></div><span>' + message + '</span>'
+                    : `<i class="material-icons">${type === 'error' ? 'error' : 'check_circle'}</i><span>${message}</span>`;
+                
+                statusDiv.className = 'status';
+                statusDiv.classList.add(type);
+                statusDiv.style.display = 'flex';
+                
+                // Auto-hide success messages after 5 seconds
+                if (type === 'success') {
+                    setTimeout(() => {
+                        statusDiv.style.display = 'none';
+                    }, 5000);
+                }
+            }
+            
+            // Function to show snackbar notifications
+            function showSnackbar(message, type) {
+                // Set icon based on type
+                let icon = 'info';
+                if (type === 'success') icon = 'check_circle';
+                if (type === 'error') icon = 'error';
+                
+                snackbarIcon.textContent = icon;
+                snackbarMessage.textContent = message;
+                
+                // Set type class
+                snackbar.className = 'snackbar';
+                snackbar.classList.add(type);
+                
+                // Show snackbar
+                snackbar.classList.add('show');
+                
+                // Hide after 3 seconds
+                setTimeout(() => {
+                    snackbar.classList.remove('show');
+                }, 3000);
+            }
+            
+            urlInput.value = '';
+        });
+    </script>
+</body>
+</html>

@@ -15,11 +15,11 @@
         <header>
             <div class="app-title">
                 <i class="material-icons">palette</i>
-                <h3>Color Palette Extractor</h3>
+                <h3>Color  Extractor</h3>
             </div>
             <!-- <p class="description">Extract color palettes from  website with element mapping. See exactly which colors are used by which elements.</p> -->
             <button class="theme-toggle" id="theme-toggle">
-                <i class="material-icons" id="theme-icon">dark_mode</i>
+                <i class="material-icons" id="theme-icon"></i>
                 <span id="theme-text"></span>
             </button>
         </header>
@@ -121,7 +121,7 @@
                 document.body.classList.toggle('dark-mode');
                 const isDarkMode = document.body.classList.contains('dark-mode');
                 themeIcon.textContent = isDarkMode ? 'light_mode' : 'dark_mode';
-                themeText.textContent = isDarkMode ? 'Light Mode' : 'Dark Mode';
+                themeText.textContent = isDarkMode ? '' : '';
                 
                 // Save preference to localStorage
                 localStorage.setItem('darkMode', isDarkMode);
@@ -131,7 +131,7 @@
             if (localStorage.getItem('darkMode') === 'true') {
                 document.body.classList.add('dark-mode');
                 themeIcon.textContent = 'light_mode';
-                themeText.textContent = 'Light Mode';
+                themeText.textContent = '';
             }
             
             // Tab switching functionality
